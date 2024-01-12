@@ -1,0 +1,55 @@
+---
+title: "Untitled"
+author: "Filip Wilhelm Sjostrand"
+date: "`r Sys.Date()`"
+output: html_document
+---
+```{r}
+u = "https://en.wikipedia.org/wiki/List_of_U.S._states_and_territories_by_population"
+
+tt <- readLines(u)
+
+head(tt)
+
+
+library(XML)
+doc <- htmlParse(tt)
+tbl <- readHTMLTable(doc)
+tnodes = getNodeSet(doc, "//table")[[1]]
+tbl = getNodeSet(doc, "//table")[[1]]
+names(tbl)
+```
+
+```{r}
+cok <- "_octo=GH1.1.2094835138.1679271612; preferred_color_mode=dark; tz=America%2FLos_Angeles; _device_id=2535ce0e9d2b63124db126c1a2360fcb; has_recent_activity=1; user_session=PEKw91JujX0ctOpQuPsY29_w8Wp8nmeTMk2xUm5sc9xCiqn9; __Host-user_session_same_site=PEKw91JujX0ctOpQuPsY29_w8Wp8nmeTMk2xUm5sc9xCiqn9; tz=America%2FLos_Angeles; color_mode=%7B%22color_mode%22%3A%22auto%22%2C%22light_theme%22%3A%7B%22name%22%3A%22light%22%2C%22color_mode%22%3A%22light%22%7D%2C%22dark_theme%22%3A%7B%22name%22%3A%22dark%22%2C%22color_mode%22%3A%22dark%22%7D%7D; logged_in=yes; dotcom_user=Tegelstenen; _gh_sess=7zhjXeoPeyz5g6dUtAn%2FcnCSxfqlVZ5uCF9ZWbnrs7f3gdH4Vctpd4%2FXVBo1RmuHPSr1bySfOsdDYkWSMjRP4DUKmADnfUJCPWXNxUuxmwpj3XUd8AxhevB7DfNpmEIXQbz3V4h5hNBo6nfE3vFcQKyAzRVp0bvWvq%2BSiDC0xw%2BcAYpENr9YuumeW%2B%2BynWL0u%2F7w13LZUfNEkgWu5B6zKkdQaUXxvT0agXhtgfFKjC70u3hIKfpNC%2FpXRi1Yp5CDV2vjmiJ8gQpHMJ3nD6EiwQGBNwK9f3mBowxvsYcMCk%2Byz7kfEC5nDWI63wmsyPCiNJU9au%2FWXEC9%2FlL%2BsxfyDiNAQ%2F%2Fht1SicKVoLOtuRTM5bYNzSwvNMrS1%2BgeVMF3x3GRZEJohVP8jHwqloE2NfQEQ%2BfU%2FFHNzkzSNEJ0EF6bhIfneiNeyhDyeVivD7pzyxxaqtbYqcFhi--7a2c5lduiBJdQCk4--CG0v%2BQEdZJPppJG5i8mwlQ%3D%3D"
+
+
+ss <- "https://dashboard.waterdata.usgs.gov/service/cwis/1.0/odata/CurrentConditions?$top=15000&$filter=(AccessLevelCode%20eq%20%27P%27)%20and%20(1%20eq%201%20and%20true)%20and%20(SiteTypeCode%20in%20(%27ST%27%2C%27ST-CA%27%2C%27ST-DCH%27%2C%27ST-TS%27))%20and%20(ParameterCode%20in%20(%2730208%27%2C%2730209%27%2C%2750042%27%2C%2750050%27%2C%2750051%27%2C%2772137%27%2C%2772138%27%2C%2772139%27%2C%2772177%27%2C%2772243%27%2C%2774072%27%2C%2781395%27%2C%2799060%27%2C%2799061%27%2C%2700056%27%2C%2700058%27%2C%2700059%27%2C%2700060%27%2C%2700061%27))&$select=AgencyCode,SiteNumber,SiteName,SiteTypeCode,Latitude,Longitude,CurrentConditionID,ParameterCode,TimeLocal,TimeZoneCode,Value,ValueFlagCode,RateOfChangeUnitPerHour,StatisticStatusCode,FloodStageStatusCode&$orderby=SiteNumber,AgencyCode,ParameterCode,TimeLocal%20desc&caller=National%20Water%20Dashboard%20default
+"
+```
+
+
+
+```{r}
+library(rvest)
+library(XML)
+library(RCurl)
+library(httr)
+library(RJSONIO)
+
+j <- getURLContent("https://github.com/search?q=R%20URL%20decode&type=repositories", cookie = cok)
+
+d <- fromJSON(j)
+
+d$payload$results[[1]]
+
+
+
+
+grep("SAN", tt)
+```
+
+
+
+
+

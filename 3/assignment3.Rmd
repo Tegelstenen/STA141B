@@ -1,0 +1,715 @@
+---
+title: "Assignment 3"
+author: "Filip Wilhelm Sjostrand"
+date: "`r Sys.Date()`"
+output: 
+    pdf_document:
+        latex_engine: xelatex
+        number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(RSQLite)
+library(ggplot2)
+library(dplyr)
+path <- file.path("/Users/filipsjostrand/Documents/UC Davis/Courses/STA 141B/data/STA141B Spring 2023/stats.stackexchange.db")
+con <- dbConnect(SQLite(), path)
+```
+
+# How many users are there?
+
+For this question, we only need the `Users` table. In the Stack Exchange data schema, each row in the `Users` table represents a unique user. The primary key for the Users table is `Id`, which is unique for each user. We use `DISTINCT()` to ensure no duplicate counts. From the query below we can observe that there are 321677 users on the forum.
+
+```{sql connection=con}
+SELECT COUNT(DISTINCT Id) AS TotalUniqueUsers 
+FROM Users;
+```
+
+# How many users joined since 2020?
+
+We shall remain using the `Users` table. Within the table we find `CreationDate`. We will extract the year as instructed by Ian (2021) and convert from datetime into integer and look for years greater or equal to 2020. From below we see that since 2020, 100796 users where created.
+
+```{sql connection=con}
+SELECT COUNT(*) AS UsersSince2020
+FROM Users
+WHERE CAST(strftime('%Y', CreationDate) AS INTEGER) >= 2020;
+```
+
+# How many users joined each year?
+
+We will remain using the `Users` table. Using similar method as above to extract the year, we then group by each year to create a data frame with the count of each user per year.
+
+```{sql connection=con, output.var="df"}
+SELECT 
+  CAST(strftime('%Y', CreationDate) AS INTEGER) AS Year,
+  COUNT(*) AS UserCount
+FROM Users
+GROUP BY Year
+ORDER BY Year;
+```
+
+
+The observed trend of increasing new user registrations on Stack Overflow until 2018, followed by a subsequent decrease, could be attributed to various factors. These include the platform's growing popularity and eventual saturation, competition from other platforms, and potential changes in platform policies or features.
+
+```{r}
+ggplot(df, aes(x = Year, y = UserCount)) +
+    geom_smooth(se = FALSE)
+```
+
+# How many different types of posts are there in the Posts table?
+
+We start with the `Posts` table. Types are referred to by IDs, which are linked to `value` in the `PostTypeIdMap` table (Community Wiki, 2023). We join these tables on this ID, group by the `value`, count the posts, and sort in descending order to get a more general table used to answer several questions. First, There appears to be 8 different types of posts.
+
+```{sql connection=con}
+SELECT ptm.value, COUNT(*) AS PostCount
+FROM Posts p
+INNER JOIN PostTypeIdMap ptm ON p.PostTypeId = ptm.Id
+GROUP BY ptm.value
+ORDER BY PostCount DESC;
+```
+# How many posted questions are there?
+ 
+From Table 3 above, we can derive that there are 204370 questions.
+
+# What are the top 50 most common tags on questions? For each of the top 50 tags on questions, how many questions are there for each tag?
+
+The provided SQL query uses the `TagPosts` table. By comparing the ID of `TagPosts` and `Posts` we can confirm that they are referring to the same. Hence, we can count the unique occurrences in `TagPosts`. The query groups rows by tag, counts the number of occurrences (the number of questions with that tag), and orders the result in descending order of count, limiting the output to the top 50 tags. Below we can observe the different tags and in how many questions they occur. *r*, *regression*, and *machine-learning* dominate.
+
+```{sql connection=con}
+SELECT Tag, COUNT(*) AS CountTags
+FROM TagPosts
+GROUP BY Tag
+ORDER BY CountTags DESC
+LIMIT 50;
+```
+
+# How many tags are in most questions?
+
+We shall count the average number of tags per question to estimate this. By simply counting how many times each `Id` appears in `TagPosts` we know how many tags a question have. THen we find the average. It appears as if 3 tags per question is the most common occurance.
+
+```{sql connection=con}
+SELECT AVG(NumTag)
+FROM (SELECT COUNT(Id) AS NumTag FROM TagPosts GROUP BY Id);
+```
+
+
+# How many answers are there?
+
+As observable in Table 3, there are 197928 answers.
+
+# What’s the most recent question (by date-time) in the Posts table?
+
+In the `Posts` table, each post has a `PostTypeId` (where we know from before that 1 refers to questions (Community Wiki, 2023)) and a `CreationDate.` The query filters for questions and then sorts them by `CreationDate` in descending order. The `LIMIT` 1 clause restricts the result to the top row. Hence, the latest post from our database was on 2023-03-05.
+
+## Find it on the stats.exchange.com Web site and provide the URL
+
+Here is the link to that post: https://stats.stackexchange.com/questions/608458/are-there-any-methods-that-combine-mcmc-and-vi
+
+## How would we map a question in the Posts table to the corresponding SO URL?
+
+It appears as if the question ID is mentioned in the URL, which should be a good way to map the URL to the table.
+
+```{sql connection=con}
+SELECT CreationDate, Id
+FROM Posts
+WHERE PostTypeId = 1
+ORDER BY CreationDate DESC
+LIMIT 1;
+```
+
+# For the 10 users who posted the most questions
+
+**- How many questions did they post?**
+
+**- What are the users’ names?**
+
+**- When did they join SO?**
+
+**- What is their Reputation?**
+
+**- What country do they have in their profile?**
+
+The `Users` table contains user details such as `DisplayName`, `CreationDate`, `Reputation`, and `Location`, and the `Posts` table contains posts details with `OwnerUserId` referring back to the `Users` table and `PostTypeId` distinguishing questions. The query joins these two tables on user ID, filters for questions, groups by user, and orders by the count of
+questions in descending order, limiting to the top 10 users.
+
+*stats_noob* seems to be an avid poster of questions. However, it is slightly worrisome that he has such a poor reputation. Either the data base is wrong or he posts rather poor questions.
+
+```{sql connection=con}
+SELECT 
+  u.Id AS UserId,
+  u.DisplayName AS UserName,
+  u.CreationDate AS JoinDate,
+  u.Reputation AS Reputation,
+  u.Location AS Country,
+  COUNT(p.Id) AS QuestionCount
+FROM Users u
+INNER JOIN Posts p ON u.Id = p.OwnerUserId
+WHERE p.PostTypeId = 1
+GROUP BY UserId
+ORDER BY QuestionCount DESC
+LIMIT 10;
+```
+
+
+# Following from the previous questions, for the 10 users who posted the most questions, how many gold, silver and bronze badges does each of these 10 individuals have?
+
+The `Badges` table has a `Class` field, where '1' represents gold, '2' represents silver, and '3' represents bronze (Community Wiki, 2023). The query first identifies the top 10 users who posted the most questions (as in the previous question) and then joins these users with their badges, finally using the method, as presented by BMN (2013), of counting the badges of each class.
+ 
+Here, the user *Tim* is a leader in all three classes. We can also observe that *stats_noob* dropped on the leader board, somewhat instigating what I previously mentioned (poor questions)
+
+```{sql connection=con}
+WITH TopUsers AS (
+  SELECT 
+    u.Id AS UserId,
+    u.DisplayName AS UserName,
+    u.CreationDate AS JoinDate,
+    u.Reputation AS Reputation,
+    u.Location AS Country,
+    COUNT(p.Id) AS QuestionCount
+  FROM Users u
+  INNER JOIN Posts p ON u.Id = p.OwnerUserId
+  WHERE p.PostTypeId = 1
+  GROUP BY UserId
+  ORDER BY QuestionCount DESC
+  LIMIT 10
+  )
+
+SELECT 
+  tu.UserId,
+  u.DisplayName AS UserName,
+  COUNT(CASE WHEN b.Class = 1 THEN 1 END) AS GoldBadges,
+  COUNT(CASE WHEN b.Class = 2 THEN 1 END) AS SilverBadges,
+  COUNT(CASE WHEN b.Class = 3 THEN 1 END) AS BronzeBadges
+FROM TopUsers tu
+INNER JOIN Users u ON tu.UserId = u.Id
+INNER JOIN Badges b ON tu.UserId = b.UserId
+GROUP BY tu.UserId
+ORDER BY 
+  GoldBadges DESC, 
+  SilverBadges DESC, 
+  BronzeBadges DESC;
+```
+
+# For each of the following terms, how many questions contain that term: Regression, ANOVA, Data Mining, Machine Learning, Deep Learning, Neural Network.
+
+We wish to first find all the questions. As known, we filter on `PostTyoeId = 1`. Then, the query searches for each term within the `Body` field of questions in the `Posts` table. It utilizes the same method given by BMN (2013).
+
+Given that we already know that both Regression and Machine Learning where in the top 3 of tags it is to no surprise we also see them at the top in in-text mentions. However, interseting that ANOVA has more than machine learning as it is not even in the top 10 of tags.
+
+```{sql connection=con}
+SELECT 
+  SUM(CASE WHEN Body LIKE '%Regression%' THEN 1 ELSE 0 END) AS Regression,
+  SUM(CASE WHEN Body LIKE '%ANOVA%' THEN 1 ELSE 0 END) AS ANOVA,
+  SUM(CASE WHEN Body LIKE '%Data Mining%' THEN 1 ELSE 0 END) AS DataMining,
+  SUM(CASE WHEN Body LIKE '%Machine Learning%' THEN 1 ELSE 0 END) AS MachineLearning,
+  SUM(CASE WHEN Body LIKE '%Deep Learning%' THEN 1 ELSE 0 END) AS DeepLearning,
+  SUM(CASE WHEN Body LIKE '%Neural Network%' THEN 1 ELSE 0 END) AS NeuralNetwork
+FROM Posts
+WHERE PostTypeId = 1;
+```
+# Using the Posts and PostLinks tables, how many questions gave rise to a ”related” or ”duplicate” question?
+## - And how many responses did these questions get?
+## - How experienced were the users posting these **questions**.
+
+First, we find out how many questions gave rise to a "related" or "duplicate" question. In the `PostLinks` table, we'll consider `LinkTypeId` values of 3, which represent "duplicate" links (Community Wiki, 2023). We'll count the distinct `PostId` values, which represent the original questions that have related or duplicate links. Hence 12326 occurrences of duplicate posts
+
+
+```{sql connection=con}
+SELECT COUNT(DISTINCT(PostId)) AS NumDuplicate
+FROM PostLinks
+WHERE LinkTypeId = 3;
+```
+
+Next, we find out how many responses these questions got. We'll count the number of posts in the `Posts` table where `ParentId` is one of the `PostId` values identified above. `PostTypeId` is 2, representing answers (Community Wiki, 2023). So, 4136 of the duplicate questions got responses
+
+```{sql connection=con}
+WITH Duplicate AS (
+  SELECT DISTINCT PostId
+  FROM PostLinks
+  WHERE LinkTypeId = 3
+)
+
+SELECT COUNT(*) AS NumResponses
+FROM Posts
+WHERE 
+  ParentId IN (SELECT PostId FROM Duplicate) AND
+  PostTypeId = 2;
+```
+
+Lastly, we shall find out how experienced the users posting these questions were. We'll join the `Posts` and `Users` tables to get the `Reputation` of the users who posted the original questions identified above. However, we will want to find the latest of all posts since a users reputation may have increased or decreased. We'll then calculate a summary statistic: the average.
+
+In this query, `MAX(p.CreationDate)` is used to select the latest `CreationDate` for each unique `OwnerUserId.` The `GROUP BY` statement is necessary to specify that we wish the max of each user, in this case, we are grouping by `OwnerUserId`.
+
+We see that the average experience is around 475, which implies that they are not complete beginners who post duplicate questions. However, as apparent in the tables above: you should only expect an answer one third of the time.
+
+```{sql connection=con}
+WITH Duplicate AS (
+  SELECT DISTINCT(PostId)
+  FROM PostLinks
+  WHERE LinkTypeId = 3
+),
+
+LatestReputation AS (
+  SELECT
+    p.OwnerUserId, 
+    u.Reputation, 
+    MAX(p.CreationDate) AS LatestCreationDate
+  FROM Posts p
+  INNER JOIN Users u ON p.OwnerUserId = u.Id
+  WHERE p.Id IN (SELECT PostId FROM Duplicate)
+  GROUP BY p.OwnerUserId
+)
+
+SELECT AVG(Reputation) AS MeanExperience FROM LatestReputation;
+```
+
+# What is the date range for the questions and answers in this database?
+
+The `Posts` table has a `CreationDate` field which records the date each post was created, and a `PostTypeId` field which distinguishes between questions and answers. The query groups by `PostTypeId`, filters for questions and answers, and finds the minimum and maximum `CreationDate` for each group.
+
+We can observe that both questions and answer begun 2009-02-02 and kept going til today (or the day of the last update of the data base). Suggest an active community.
+
+```{sql connection=con}
+SELECT 
+  ptm.value AS Kind,
+  MIN(CreationDate) AS EarliestDate,
+  MAX(CreationDate) AS LatestDate
+FROM Posts p
+INNER JOIN PostTypeIdMap ptm ON p.PostTypeId = ptm.id
+WHERE PostTypeId IN (1, 2)
+GROUP BY PostTypeId;
+```
+
+# What question has the most comments associated with it?
+
+The `Comments` table has a `PostId` field which links each comment to a post. By grouping comments by `PostId`, we can count the number of comments for each question. Then we find the `PostId` with the highest comment count. Finally, we count the number of posts where this `PostId` is the `ParentId` and `PostTypeId` is 2, representing answers. However, we shall also consider that it have to be a question and not an answer, thus, looking at `PostTypeId` as 1, too.
+
+We find that the most comments associate with a question is 54. Given the nature of the forum it is quite a high count since most questions and answers—from experience—rarely have 3 or more comments to them.
+
+```{sql connection=con}
+SELECT c.PostId, COUNT(*) AS CommentCount
+FROM Comments c
+INNER JOIN Posts p ON c.PostId = p.Id
+WHERE PostTypeId = 1
+GROUP BY PostId
+ORDER BY CommentCount DESC
+LIMIT 1;
+```
+
+## How many answers are there for this question?
+
+Given what i mentioned above, the number 54 is even considered more extreme now that only 6 answers were given to this question. From a quick look, the questions regards the appropriateness of ridge regressions in higher dimensions.
+
+```{sql connection=con}
+WITH Answers AS (
+  SELECT *
+  FROM Posts p
+  WHERE p.PostTypeId = 2
+    AND ParentId = 328630
+  )
+
+SELECT ParentId, COUNT(*) AS NumAnswers
+FROM Answers;
+```
+
+# How many comments are there across all posts?
+**- How many posts have a comment?**
+
+The first two questions can be answered directly from the `Comments` table. All comments is simply all the rows of the table, while posts with comments are all the unique posts IDs in the table. For the third question, we shall find how many comments each question has. 
+
+It appears as if there are 768069 comments in total but only 229859 posts who have comments.
+
+```{sql connection=con}
+SELECT 
+  COUNT(*) AS TotalComments, 
+  COUNT(DISTINCT PostId) AS PostsWithComments
+FROM Comments;
+```
+## What is the distribution of comments per question?
+
+We see a negative exponential distribution
+
+```{sql connection=con, output.var="df"}
+SELECT PostId, COUNT(*) AS CommentsPerQuestion
+FROM Comments
+GROUP BY PostId
+```
+
+```{r}
+ggplot(df) +
+  aes(x = CommentsPerQuestion) +
+  geom_histogram(bins = 67L, fill = "#112446") +
+  theme_minimal()
+```
+
+
+
+# Is there any relationship between the number of tags on a question, the length of the question, and the number of responses (posts and comments)?
+
+To count the number of tags on each question we utilize the method suggested by b8b8j (2010). Note that the tags are a string with the format <tag1><tag2><tag3>..., so we can count tags by counting the number of < characters. The length of the questions are straight forward found by `LEN`. For the number of response we count the rows for which `PostTypeId` is either 2 (answer) or 3 (comment). Finally we join the tables together.
+
+We begun by checking the normality of each population. We found that the question length turned normal using a log transformation, tag count was approximately normally distributed, but no success in transforming response count as it was extremely centered around 1. So, we utilized a persons correlation (parametric) between tag count and log-transformed question length. Between response count and the others we used Spearmans Rho (non-parametric). In conclusion we see a significant relationship in each instance. However, the strength in the association of response rate and the others is extremely low. Between tag count and questions lenght there is a weak associaton. Hence we could conclude some weak association in an increase in question lenght and the number of tags—which seems reasonable.
+
+```{sql connection=con, output.var="df"}
+WITH QuestionTags AS (
+  SELECT 
+    Id,
+    LENGTH(Tags) - LENGTH(REPLACE(Tags, '<', '')) AS TagCount,
+    LENGTH(Body) AS QuestionLength
+  FROM Posts
+  WHERE PostTypeId = 1
+),
+
+QuestionResponses AS (
+  SELECT ParentId, COUNT(*) AS ResponseCount
+  FROM Posts
+  WHERE PostTypeId IN (2, 3)
+  GROUP BY ParentId
+)
+
+SELECT 
+  qt.Id,
+  qt.TagCount,
+  qt.QuestionLength,
+  qr.ResponseCount
+FROM QuestionTags qt
+LEFT JOIN QuestionResponses qr ON qt.Id = qr.ParentId;
+```
+
+```{r}
+ggplot(df) +
+  aes(x = QuestionLength) +
+  geom_histogram( bins = 16L, fill = "#112446") +
+  scale_x_continuous(trans = "log") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(df) +
+  aes(x = TagCount) +
+  geom_histogram(bins = 10L, fill = "#112446", binwidth = .95) +
+  theme_minimal()
+```
+
+```{r}
+ggplot(df) +
+  aes(x = ResponseCount) +
+  geom_histogram(bins = 10L, fill = "#112446", binwidth = 1) +
+  theme_minimal()
+```
+
+```{r}
+cor.test(df$TagCount, log(df$QuestionLength))
+cor.test(df$TagCount, df$ResponseCount, method = 'spearman')
+cor.test(log(df$QuestionLength), df$ResponseCount, method = 'spearman')
+```
+
+
+# Do the people who vote tend to have badges?
+
+To answer this, we first identify users who have voted using the `Votes` table. Then we identify users who have badges using the `Badges` table. We compare these two sets of users to find users who have voted and have badges, and users who have voted but do not have badges. We observe that a great majority of voters have badges.
+
+```{sql connection=con}
+WITH Voted AS (
+  SELECT UserId
+  FROM Votes
+  GROUP BY UserId
+),
+
+WithBadges AS (
+  SELECT UserId
+  FROM Badges
+  GROUP BY UserId
+)
+
+SELECT 
+  COUNT(DISTINCT v.UserId) AS Voters,
+  COUNT(DISTINCT wb.UserId) AS VotersWithBadges,
+  (COUNT(DISTINCT v.UserId) - COUNT(DISTINCT wb.UserId)) AS VotersWithoutBadges
+FROM Voted v
+LEFT JOIN WithBadges wb ON v.UserId = wb.UserId;
+```
+
+# How many questions were edited by the original poster? by other users?
+
+Edits are recorded in the `PostHistory` table, and we can assume that an 'edit' as stated in the question corresponds to a `PostHistoryTypeId` of 4 (Edit Tags), 5 (Edit Title), or 6 (Edit Body) (Community Wiki, 2023). We can link the `PostHistory` entries to the original posts using the `PostId` field, and determine whether the edit was made by the original poster or by another user by comparing the `UserId` field in `PostHistory` with the `OwnerUserId` field in `Posts`. We see that most of the time, questions are edited by its original creator.
+
+
+
+```{sql connection=con}
+SELECT 
+  CASE 
+    WHEN ph.UserId = p.OwnerUserId THEN 'Original'
+    ELSE 'Others'
+  END AS Editor,
+  COUNT(*) AS Count
+FROM PostHistory ph
+INNER JOIN Posts p ON ph.PostId = p.Id
+WHERE ph.PostHistoryTypeId IN (4, 5, 6)
+GROUP BY Editor;
+```
+
+
+# How many posts have multiple different people who edit it?
+
+Edits are recorded in the `PostHistory` table, and we can assume, again, that an edit corresponds to a `PostHistoryTypeId` of 4 (Edit Tags), 5 (Edit Title), or 6 (Edit Body). By grouping the `PostHistory` entries by `PostId`, we can count the number of distinct users (`UserId`) who have made an edit for each post. Then we count the rows to get the sum. From below we find that 54293 has several editors.
+
+```{sql connection=con}
+WITH PostEditors AS (
+  SELECT PostId, COUNT(DISTINCT(UserId)) AS Editors
+  FROM PostHistory
+  WHERE PostHistoryTypeId IN (4, 5, 6)
+  GROUP BY PostId
+  )
+
+SELECT COUNT(*) AS PostMultiEditors 
+FROM PostEditors
+WHERE Editors > 1;
+```
+
+# Compute the table that contains
+
+*- the question,*
+
+**- the name of the user who posted it,**
+
+**- when that user joined,**
+
+**- their location**
+
+**- the date the question was first posted,**
+
+**- the accepted answer,**
+
+**- when the accepted answer was posted**
+
+**- the name of the user who provided the accepted answer.**
+
+
+The question is found as the `Body` of a Post with `PostTypeId = 1` (question) in the `Posts` table. For the user who posted, it is the `DisplayName` of the, found in the `Users` table by joining on `Id = OwnerUserId` of the post. The user join date, location is simply `CreationDate` and `Location` in the `Users` table. The date the question was first posted is on the other hand `CreationDate` with `PostTypeId = 1` in the `Posts` table. The accepted answer is the Body of a Post with `PostTypeId = 2` (answer) in the `Posts` table which has `Id` equal to the `AcceptedAnswerId` of the question. Following this, the accepted answer date is the `CreationDate` of the accepted answer, found in the `Posts` table. Finaly, the name of the user who provided the accepted answer is the `DisplayName` of the User who posted the accepted answer, found in the `Users` table by joining on `Id = OwnerUserId` of the accepted answer.
+
+```{sql connection=con}
+WITH Answers AS (
+  SELECT p.Id, p.Body, p.CreationDate, u.DisplayName
+  FROM Posts p
+  INNER JOIN Users u ON p.OwnerUserId = u.Id
+  WHERE PostTypeId = 2
+)
+
+SELECT 
+  p.Body AS Question,
+  u.DisplayName AS UserName, 
+  u.CreationDate AS UserJoined, 
+  u.Location AS UserLocation,
+  p.CreationDate AS PostDate,
+  a.body AS AcceptedAnswer,
+  a.CreationDate AS AnswerDate,
+  a.DisplayName AS AnswerUser
+FROM Posts p
+INNER JOIN Users u ON p.OwnerUserId = u.Id
+INNER JOIN Answers a ON p.AcceptedAnswerId = a.Id
+WHERE p.PostTypeId = 1
+```
+
+# Determine the users that have only posted questions and never answered a question?
+
+The query starts by merging the `Users` and `Posts` tables on `UserId.` The resultant table is then filtered to keep only posts that are either questions or answers, as defined by their `PostTypeId`. For each user, the number of questions they've posted is tallied by counting each instance where the `PostTypeId` equals 1, and similarly, the number of answers is tallied by counting each instance where the `PostTypeId` equals 2. After tallying these values, the result is grouped by `UserId`, ensuring each row in the output corresponds to a unique user. Finally, a `HAVING` clause filters out users who have not posted any questions or have posted at least one answer, thus leaving only those users in the final output who have posted questions and never posted answers. My quickly browsing the table we find that such users rarely has asked more than one or two questions on the forum, suggesting they are not all to active members.
+
+```{sql connection=con}
+SELECT 
+  u.DisplayName, 
+  SUM(CASE WHEN p.PostTypeId = 1 THEN 1 ELSE 0 END) AS Questions,
+  SUM(CASE WHEN p.PostTypeId = 2 THEN 1 ELSE 0 END) AS Answers
+FROM Users u
+INNER JOIN Posts p ON u.Id = p.OwnerUserId
+WHERE p.PostTypeId IN (1,2)
+GROUP BY u.Id
+HAVING Questions > 0 AND Answers = 0
+```
+
+## How many are there?
+
+```{sql connection=con}
+SELECT COUNT(*) AS Posters
+FROM (
+  SELECT 
+    u.DisplayName, 
+    SUM(CASE WHEN p.PostTypeId = 1 THEN 1 ELSE 0 END) AS Questions,
+    SUM(CASE WHEN p.PostTypeId = 2 THEN 1 ELSE 0 END) AS Answers
+  FROM Users u
+  INNER JOIN Posts p ON u.Id = p.OwnerUserId
+  WHERE p.PostTypeId IN (1,2)
+  GROUP BY u.Id
+  HAVING Questions > 0 AND Answers = 0
+  )
+```
+
+# Compute the table with information for the 75 users with the most accepted answers. This table should include:
+
+**- the user’s display name,**
+
+**- creation date,**
+
+**- location,**
+
+**- the number of badges they have won,**
+    **• the names of the badges (as a single string)**
+
+**- the dates of the earliest and most recent accepted answer (as two fields)**
+
+**– the (unique) tags for all the questions for which they had the accepted answer (as a single string)**
+
+The query starts with a CTE named `AnswerTags`, which compiles a list of unique tags for each user who has posted an answer. This list of tags is aggregated into a single comma-separated string for each user as suggested by Lustig (2010). After that, the query performs a series of joins between the `Posts` and `Users` tables to create a list of users who have had their posts accepted as answers. For each of these users, it calculates several of the asked columns. The results are then joined with the `AnswerTags` to add the string of unique tags associated with each user's accepted answers. Finally, the users are sorted in descending order based on the number of their accepted answers, and the top 75 are selected for the final output.
+
+*Glen_b* is a strong leader of most accepted answers. Given that he registered in 2010, he is one of the older members of the forum. He's ben receiveng accpeted answers since 2010 and still do today.
+
+
+```{sql connection=con}
+WITH AnswerTags AS (
+  SELECT 
+    u.Id, 
+    u.DisplayName, 
+    GROUP_CONCAT(DISTINCT(tp.tag)) AS UniqueTags
+  FROM TagPosts tp
+  INNER JOIN Posts p on tp.Id = p.Id
+  INNER JOIN Users u ON p.OwnerUserId = u.Id
+  GROUP BY u.Id
+  )
+  
+SELECT
+  COUNT(ps.OwnerUserId) AS NumAcceptedAnswers,
+  u.DisplayName AS UserName,
+  u.CreationDate AS UserCreationDate,
+  u.Location,
+  MIN(p.CreationDate) AS EarliestAcceptedAnswer, 
+  MAX(p.CreationDate) AS LatestAcceptedAnswer,
+  (SELECT COUNT(UserId) FROM Badges WHERE UserId = ps.OwnerUserId) AS NumBadges,
+  (SELECT GROUP_CONCAT(Name, ', ') FROM Badges WHERE UserId = ps.OwnerUserId) AS BadgeNames,
+  (SELECT GROUP_CONCAT(Name, ', ') FROM Badges WHERE UserId = ps.OwnerUserId) AS BadgeNames,
+  at.UniqueTags
+FROM Posts p
+INNER JOIN Posts ps ON p.AcceptedAnswerId = ps.Id
+INNER JOIN Users u ON ps.OwnerUserId = u.Id
+INNER JOIN AnswerTags at ON ps.OwnerUserId = at.Id
+GROUP BY ps.OwnerUserId
+ORDER BY NumAcceptedAnswers DESC
+LIMIT 75;
+``` 
+
+# How many questions received no answers (accepted or unaccepted)? 
+
+In `Posts` table we count all rows of questions (`PostTypeId = 1`) which has no answers (`AnswerCount = 0`). 66970 are the number of unanswered questions.
+
+```{sql connection=con}
+SELECT COUNT(*) AS NoAnswers
+FROM Posts
+WHERE PostTypeId = 1 AND AnswerCount = 0;
+```
+
+## How many questions had no accepted answer?
+
+similarly to the query above, we count questions in `Posts`. However, this time we also filter on `AcceptedAnswerId = ""` to make sure there is none and also `AnswerCount > 0` to remove rows that has both no accepted or unaccepted answer. From this we can derive that there are about as many unanswered questions as there are questions with no accepted answer (given other answers)
+
+```{sql connection=con}
+SELECT COUNT(*) AS NumNoAcceptedAnswer
+FROM Posts
+WHERE PostTypeId = 1 AND AnswerCount > 0 AND AcceptedAnswerId = "";
+```
+
+# What is the distribution of answers per posted question?
+
+Straightforward, we find the `AnswerCount` of questions (`PostTypeId = 1`) in the `Posts` table. We can see in the summary that most questions receive  one answer.
+
+```{sql connection=con, output.var="df"}
+SELECT AnswerCount
+FROM Posts
+WHERE PostTypeId = 1;
+```
+
+```{r}
+summary(df$AnswerCount)
+```
+
+# What is the length of time for a question to receive an answer? to obtaining an accepted answer?
+
+
+We start wit `AnswerDate` that maps each question to the date when its accepted answer was posted. Then, another CTE named `Dates` is created to compile the dates when each question was posted, its first answer was posted, and its accepted answer was posted. Finally, the main SELECT statement calculates the average time (in minutes), as suggested by LearnSQL (2023), between when each question was posted and when it received its first answer and between when each question was posted and when it received an accepted answer. We see that the accepted answer is often the first answer as well.
+
+```{sql connection=con}
+WITH AnswerDate AS (
+  SELECT p.Id, pp.CreationDate AS AcceptedAnswerDate
+  FROM Posts p
+  INNER JOIN Posts pp ON p.AcceptedAnswerId = pp.Id
+  WHERE p.PostTypeId = 1
+  ),
+
+Dates AS (
+  SELECT 
+    pp.CreationDate AS QuestionPostedDate,
+    MIN(p.CreationDate) AS FirstAnswer,
+    ad.AcceptedAnswerDate
+  FROM Posts p
+  INNER JOIN Posts pp ON p.ParentId = pp.Id
+  INNER JOIN AnswerDate ad ON pp.Id = ad.Id
+  WHERE p.PostTypeId = 2
+  GROUP BY pp.Id
+  )
+  
+SELECT 
+  ROUND((julianday(FirstAnswer) - julianday(QuestionPostedDate)) * 24 *  60) as MinutesFirstAnswer,
+  ROUND((julianday(AcceptedAnswerDate) - julianday(QuestionPostedDate)) * 24 * 60) as MinutesAcceptedAnswer
+FROM Dates;
+```
+
+# How many answers are typically received before the accepted answer?
+
+The query begins by creating `AnswerRank` where ChatGPT (2023) suggested to assign a rank to each answer based on the order of their posting for each question. Then, another CTE named `AcceptedAnswerRank` is created that maps each question with the rank of its accepted answer. Finally, we calculate the average rank of the accepted answers  to get the number of answers before the accepted one.
+
+As mentioned above, we confirm that most of the time, the first answer is the accepted answer.
+
+```{sql connection=con}
+WITH AnswerRank AS (
+    SELECT 
+        ParentId as QuestionId,
+        Id as AnswerId,
+        CreationDate as AnswerCreationDate,
+        ROW_NUMBER() OVER(PARTITION BY ParentId ORDER BY CreationDate) as AnswerRank
+    FROM Posts
+    WHERE PostTypeId = 2
+),
+
+AcceptedAnswerRank AS (
+    SELECT 
+        a.QuestionId,
+        a.AnswerRank,
+        p.AcceptedAnswerId
+    FROM AnswerRank a
+    INNER JOIN Posts p ON a.QuestionId = p.Id
+    WHERE p.AcceptedAnswerId = a.AnswerId
+)
+
+SELECT 
+    AVG(AnswerRank) as AverageAnswersBeforeAccepted
+FROM AcceptedAnswerRank;
+```
+
+
+# Sources
+
+- BMN. (2013). Answer to ‘Using Sql Count in a Case Statement’, Stack Overflow, Available Online: https://stackoverflow.com/a/17975288 [Accessed 18 May 2023]
+
+- b8b8j. (2010). Answer to ‘Query to Count Words SQLite 3’, Stack Overflow, Available Online: https://stackoverflow.com/a/3293913 [Accessed 18 May 2023]
+
+- ChatGPT. (2023). Available Online: https://chat.openai.com/ [Accessed 18 May 2023]
+
+- Community Wiki. (2023). Answer to ‘Database Schema Documentation for the Public Data Dump and SEDE’, Meta Stack Exchange, Available Online: https://meta.stackexchange.com/a/2678 [Accessed 18 May 2023]
+
+- Ian. (2021). How to Extract the Day, Month, and Year from a Date in SQLite, Available Online: https://database.guide/how-to-extract-the-day-month-and-year-from-a-date-in-sqlite/ [Accessed 15 May 2023]
+
+- LearnSQL. (2023). How to Calculate the Difference Between Two Timestamps in SQLite, LearnSQL.Com, Available Online: https://learnsql.com/cookbook/how-to-calculate-the-difference-between-two-timestamps-in-sqlite/ [Accessed 20 May 2023]
+
+- Lustig, L. (2010). Answer to ‘Group Different Rows in One by Combining Strings’, Stack Overflow, Available Online: https://stackoverflow.com/a/3926380 [Accessed 20 May 2023]
